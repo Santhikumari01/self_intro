@@ -1,0 +1,10 @@
+flask
+opencv-python==4.8.1.78
+numpy==1.26.4
+deepface
+mtcnn
+torch
+torchvision
+ultralytics
+tensorflow==2.15.1
+tf-keras

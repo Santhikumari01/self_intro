@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Live Interview Proctoring</title>
+</head>
+<body>
+
+<h2>Step 1: Upload Reference Photo</h2>
+<input type="file" id="photo" accept="image/*">
+<button onclick="uploadPhoto()">Upload Photo</button>
+
+<hr>
+
+<h2>Step 2: Live Proctoring</h2>
+<button onclick="startCamera()">Start Proctoring</button>
+<button onclick="stopCamera()">Stop Proctoring</button>
+
+<br><br>
+<video id="video" width="400" autoplay></video>
+
+<h3>Live Result</h3>
+<pre id="output">Waiting...</pre>
+
+<script>
+let video = document.getElementById("video");
+let stream = null;
+let intervalId = null;
+
+function uploadPhoto() {
+    let file = document.getElementById("photo").files[0];
+    if (!file) {
+        alert("Please upload a photo first");
+        return;
+    }
+
+    let formData = new FormData();
+    formData.append("photo", file);
+
+    fetch("/upload_photo", { method: "POST", body: formData })
+        .then(res => res.json())
+        .then(data => alert(data.message));
+}
+
+function startCamera() {
+    if (stream) return;
+
+    fetch("/start_proctoring", { method: "POST" });
+
+    navigator.mediaDevices.getUserMedia({ video: true })
+        .then(s => {
+            stream = s;
+            video.srcObject = stream;
+            intervalId = setInterval(sendFrame, 2000);
+        })
+        .catch(() => alert("Camera permission denied"));
+}
+
+function stopCamera() {
+    fetch("/stop_proctoring", { method: "POST" });
+
+    if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+    }
+
+    if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
+    }
+
+    document.getElementById("output").innerText = "Proctoring stopped";
+}
+
+function sendFrame() {
+    if (!stream || video.videoWidth === 0) return;
+
+    let canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    let ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0);
+
+    canvas.toBlob(blob => {
+        let formData = new FormData();
+        formData.append("frame", blob);
+
+        fetch("/analyze", { method: "POST", body: formData })
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById("output").innerText =
+                    JSON.stringify(data, null, 2);
+            });
+    }, "image/jpeg");
+}
+</script>
+
+</body>
+</html>
