@@ -1,37 +1,34 @@
 from flask import Flask, render_template, request, jsonify
-import cv2
+import cv2, time, os
 import numpy as np
 from deepface import DeepFace
 from mtcnn import MTCNN
 from ultralytics import YOLO
-import time, os
 
 app = Flask(__name__)
 
-# ---------------- CONFIG ----------------
 UPLOAD_FOLDER = "uploads"
-REFERENCE_IMAGE_PATH = os.path.join(UPLOAD_FOLDER, "temp_reference.jpg")
-
-FACE_MATCH_THRESHOLD = 60       # %
-ABSENCE_THRESHOLD = 5           # seconds
-
-# Forbidden objects (expanded slightly)
-FORBIDDEN_OBJECTS = ["cell phone", "book", "backpack"]
-
-# ---------------------------------------
-
+REFERENCE_IMAGE = os.path.join(UPLOAD_FOLDER, "reference.jpg")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# Models
-face_detector = MTCNN()
-yolo_model = YOLO("yolov8n.pt")   # auto-download
+# ---------------- CONFIG ----------------
+FACE_MATCH_THRESHOLD = 60
+ABSENCE_THRESHOLD = 5   # seconds
+FORBIDDEN_OBJECTS = ["cell phone", "book", "backpack"]
 
-# Proctoring state
+# ---------------- MODELS (LOAD ONCE) ----------------
+face_detector = MTCNN()
+yolo_model = YOLO("yolov8n.pt")
+
+# ---------------- GLOBAL STATE ----------------
 proctoring_active = False
 last_face_seen_time = None
 
-# Object memory for multi-frame confirmation
-object_memory = {}
+leave_count = 0
+multi_face_count = 0
+object_count = 0
+
+# ---------------------------------------
 
 @app.route("/")
 def index():
@@ -41,118 +38,113 @@ def index():
 def upload_photo():
     photo = request.files.get("photo")
     if not photo:
-        return jsonify({"message": "No photo uploaded"}), 400
+        return jsonify({"error": "No photo"}), 400
+    photo.save(REFERENCE_IMAGE)
+    return jsonify({"message": "Reference image uploaded"})
 
-    photo.save(REFERENCE_IMAGE_PATH)
-    return jsonify({"message": "Reference photo uploaded successfully"})
+@app.route("/start", methods=["GET"])
+def start():
+    global proctoring_active, last_face_seen_time
+    global leave_count, multi_face_count, object_count
 
-@app.route("/start_proctoring", methods=["POST"])
-def start_proctoring():
-    global proctoring_active, last_face_seen_time, object_memory
     proctoring_active = True
     last_face_seen_time = time.time()
-    object_memory = {}
+
+    leave_count = 0
+    multi_face_count = 0
+    object_count = 0
+
     return jsonify({"message": "Proctoring started"})
 
-@app.route("/stop_proctoring", methods=["POST"])
-def stop_proctoring():
+@app.route("/stop", methods=["GET"])
+def stop():
     global proctoring_active
     proctoring_active = False
     return jsonify({"message": "Proctoring stopped"})
 
-@app.route("/analyze", methods=["POST"])
-def analyze():
-    global last_face_seen_time, object_memory
+@app.route("/analyze_video", methods=["POST"])
+def analyze_video():
+    global last_face_seen_time
+    global leave_count, multi_face_count, object_count
 
-    # 🚫 Do nothing if proctoring not started
     if not proctoring_active:
         return jsonify({
-            "face_count": None,
-            "face_match_score": None,
-            "detected_objects": [],
-            "video_alerts": []
+            "video_score": None,
+            "video_alerts": [],
+            "plagiarism": {}
         })
 
-    frame_file = request.files.get("frame")
-    if not frame_file:
-        return jsonify({"error": "No frame received"}), 400
+    file = request.files.get("frame")
+    if not file:
+        return jsonify({"error": "No frame"}), 400
 
-    np_img = np.frombuffer(frame_file.read(), np.uint8)
-    frame = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
-
+    img = cv2.imdecode(np.frombuffer(file.read(), np.uint8), cv2.IMREAD_COLOR)
     alerts = []
-    detected_objects = []
-    match_score = None
 
-    # ---------- 1️⃣ FACE DETECTION ----------
-    faces = face_detector.detect_faces(frame)
+    # ---------------- FACE DETECTION ----------------
+    faces = face_detector.detect_faces(img)
     face_count = len(faces)
 
     if face_count > 1:
-        alerts.append("Multiple persons detected")
+        multi_face_count += 1
+        alerts.append("Multiple faces detected")
 
-# Select largest face as candidate
-    if faces:
-        faces = sorted(faces, key=lambda x: x['box'][2]*x['box'][3], reverse=True)
-
-
-    # ---------- 4️⃣ PRESENCE MONITORING ----------
+    # ---------------- PRESENCE ----------------
     if face_count >= 1:
         last_face_seen_time = time.time()
-    elif last_face_seen_time is not None:
+    else:
         if time.time() - last_face_seen_time > ABSENCE_THRESHOLD:
+            leave_count += 1
+            last_face_seen_time = time.time()
             alerts.append("Candidate left frame")
 
-    # ---------- 2️⃣ FACE VERIFICATION ----------
-    if face_count == 1 and os.path.exists(REFERENCE_IMAGE_PATH):
+    # ---------------- FACE VERIFICATION ----------------
+    face_match = None
+    if face_count == 1 and os.path.exists(REFERENCE_IMAGE):
         try:
             result = DeepFace.verify(
-                img1_path=REFERENCE_IMAGE_PATH,
-                img2_path=frame,
+                REFERENCE_IMAGE,
+                img,
                 enforce_detection=False,
                 model_name="Facenet"
             )
-            match_score = round(result["confidence"], 2)
-            if match_score < FACE_MATCH_THRESHOLD:
+            face_match = round(result["confidence"], 2)
+            if face_match < FACE_MATCH_THRESHOLD:
                 alerts.append("Face mismatch")
         except:
             pass
 
-    # ---------- 3️⃣ OBJECT DETECTION (YOLOv8n – FIXED) ----------
-    results = yolo_model(frame, conf=0.25, verbose=False)
-
-    current_detected = []
+    # ---------------- OBJECT DETECTION ----------------
+    results = yolo_model(img, conf=0.3, verbose=False)
+    detected = set()
 
     for r in results:
         for box in r.boxes:
-            cls_id = int(box.cls)
-            label = yolo_model.names[cls_id]
-
+            label = yolo_model.names[int(box.cls)]
             if label in FORBIDDEN_OBJECTS:
-                current_detected.append(label)
+                detected.add(label)
 
-    # Multi-frame confirmation (2 frames)
-    for obj in current_detected:
-        object_memory[obj] = object_memory.get(obj, 0) + 1
+    if detected:
+        object_count += 1
+        alerts.append("Unauthorized object detected")
 
-    # Reset memory for objects not seen
-    for key in list(object_memory.keys()):
-        if key not in current_detected:
-            object_memory[key] = 0
-
-    confirmed_objects = [k for k, v in object_memory.items() if v >= 2]
-
-    if confirmed_objects:
-        detected_objects.extend(confirmed_objects)
-        if "Unauthorized object detected" not in alerts:
-            alerts.append("Unauthorized object detected")
-
+    # ---------------- FINAL VIDEO SCORE ----------------
+    video_score = 100
+    video_score -= leave_count * 10
+    video_score -= multi_face_count * 15
+    video_score -= object_count * 20
+    video_score = max(video_score, 0)
 
     return jsonify({
         "face_count": face_count,
-        "face_match_score": match_score,
-        "detected_objects": list(set(detected_objects)),
-        "video_alerts": list(set(alerts))
+        "face_match": face_match,
+        "video_alerts": alerts,
+        "plagiarism": {
+            "left_frame": leave_count,
+            "multiple_faces": multi_face_count,
+            "objects": object_count
+        },
+        "video_score": video_score
     })
 
 if __name__ == "__main__":
