@@ -1,97 +1,93 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Live Interview Proctoring</title>
+  <title>AI Self Introduction</title>
+  <style>
+    body { font-family: Arial; padding: 20px; }
+    pre { background:#f4f4f4; padding:10px; }
+    button { padding:10px; margin:5px; }
+  </style>
 </head>
 <body>
 
-<h2>Step 1: Upload Reference Photo</h2>
-<input type="file" id="photo" accept="image/*">
-<button onclick="uploadPhoto()">Upload Photo</button>
+<h2>AI Interview – Self Introduction</h2>
 
-<hr>
-
-<h2>Step 2: Live Proctoring</h2>
-<button onclick="startCamera()">Start Proctoring</button>
-<button onclick="stopCamera()">Stop Proctoring</button>
+<button onclick="startAll()">Start Self Intro</button>
+<button onclick="stopAll()">Stop</button>
 
 <br><br>
-<video id="video" width="400" autoplay></video>
+<video id="video" width="400" autoplay muted></video>
 
-<h3>Live Result</h3>
-<pre id="output">Waiting...</pre>
+<h3>📷 Video Output</h3>
+<pre id="videoOut">Waiting...</pre>
+
+<h3>🎤 Live Transcript</h3>
+<pre id="liveText"></pre>
+
+<h3>🎧 Audio Analysis</h3>
+<pre id="audioOut"></pre>
+
+<h3>🏆 Final Score</h3>
+<h2 id="finalScore">Waiting...</h2>
 
 <script>
 let video = document.getElementById("video");
-let stream = null;
-let intervalId = null;
+let stream, mediaRecorder, audioChunks=[];
+let videoTimer;
 
-function uploadPhoto() {
-    let file = document.getElementById("photo").files[0];
-    if (!file) {
-        alert("Please upload a photo first");
-        return;
-    }
+async function startAll(){
+  await fetch("/start");
 
-    let formData = new FormData();
-    formData.append("photo", file);
+  stream = await navigator.mediaDevices.getUserMedia({video:true,audio:true});
+  video.srcObject = stream;
 
-    fetch("/upload_photo", { method: "POST", body: formData })
-        .then(res => res.json())
-        .then(data => alert(data.message));
+  mediaRecorder = new MediaRecorder(stream);
+  mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+  mediaRecorder.start();
+
+  videoTimer = setInterval(sendFrame, 2000);
 }
 
-function startCamera() {
-    if (stream) return;
+async function stopAll(){
+  clearInterval(videoTimer);
 
-    fetch("/start_proctoring", { method: "POST" });
+  stream.getTracks().forEach(t=>t.stop());
+  mediaRecorder.stop();
 
-    navigator.mediaDevices.getUserMedia({ video: true })
-        .then(s => {
-            stream = s;
-            video.srcObject = stream;
-            intervalId = setInterval(sendFrame, 2000);
-        })
-        .catch(() => alert("Camera permission denied"));
+  mediaRecorder.onstop = async ()=>{
+    const blob = new Blob(audioChunks,{type:"audio/webm"});
+    let fd = new FormData();
+    fd.append("audio",blob);
+
+    const res = await fetch("/analyze_audio",{method:"POST",body:fd});
+    const audio = await res.json();
+
+    document.getElementById("audioOut").innerText =
+      JSON.stringify(audio,null,2);
+
+    let videoScore = lastVideo.video_score || 0;
+    let final = Math.round((videoScore + (audio.fluency_score||0))/2);
+    document.getElementById("finalScore").innerText = final+"/100";
+  };
+
+  await fetch("/stop");
 }
 
-function stopCamera() {
-    fetch("/stop_proctoring", { method: "POST" });
+let lastVideo = {};
+async function sendFrame(){
+  let c=document.createElement("canvas");
+  c.width=video.videoWidth;
+  c.height=video.videoHeight;
+  c.getContext("2d").drawImage(video,0,0);
 
-    if (intervalId) {
-        clearInterval(intervalId);
-        intervalId = null;
-    }
-
-    if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-        stream = null;
-    }
-
-    document.getElementById("output").innerText = "Proctoring stopped";
-}
-
-function sendFrame() {
-    if (!stream || video.videoWidth === 0) return;
-
-    let canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-
-    let ctx = canvas.getContext("2d");
-    ctx.drawImage(video, 0, 0);
-
-    canvas.toBlob(blob => {
-        let formData = new FormData();
-        formData.append("frame", blob);
-
-        fetch("/analyze", { method: "POST", body: formData })
-            .then(res => res.json())
-            .then(data => {
-                document.getElementById("output").innerText =
-                    JSON.stringify(data, null, 2);
-            });
-    }, "image/jpeg");
+  c.toBlob(async b=>{
+    let fd=new FormData();
+    fd.append("frame",b);
+    const r=await fetch("/analyze_video",{method:"POST",body:fd});
+    lastVideo=await r.json();
+    document.getElementById("videoOut").innerText =
+      JSON.stringify(lastVideo,null,2);
+  });
 }
 </script>
 
