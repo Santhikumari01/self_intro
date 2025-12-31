@@ -1,94 +1,322 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>AI Self Introduction</title>
-  <style>
-    body { font-family: Arial; padding: 20px; }
-    pre { background:#f4f4f4; padding:10px; }
-    button { padding:10px; margin:5px; }
-  </style>
+<meta charset="UTF-8">
+<title>AI Interview Platform</title>
+
+<style>
+/* ========== GLOBAL ========== */
+body{
+    margin:0;
+    font-family:"Segoe UI",Roboto,Arial;
+    background:
+      linear-gradient(rgba(8,12,30,0.93),rgba(8,12,30,0.93)),
+      url("https://images.unsplash.com/photo-1521737604893-d14cc237f11d");
+    background-size:cover;
+    min-height:100vh;
+    color:#f8fafc;
+}
+.wrapper{
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    min-height:100vh;
+}
+.container{
+    width:460px;
+    padding:34px;
+    border-radius:22px;
+    background:rgba(255,255,255,0.14);
+    backdrop-filter:blur(22px);
+    border:1px solid rgba(255,255,255,0.25);
+    box-shadow:0 25px 60px rgba(0,0,0,0.45);
+    display:none;
+    text-align:center;
+}
+h2{margin-bottom:6px;}
+.subtitle{
+    font-size:14px;
+    color:#c7d2fe;
+    margin-bottom:22px;
+}
+
+/* ========== INPUT ========== */
+.input-group{text-align:left;margin-bottom:18px;}
+label{font-size:13px;color:#c7d2fe;}
+input{
+    width:100%;
+    padding:14px;
+    margin-top:6px;
+    border-radius:12px;
+    border:none;
+    background:rgba(255,255,255,0.18);
+    color:#fff;
+}
+input:focus{outline:1px solid #60a5fa;}
+
+/* ========== BUTTONS ========== */
+button{
+    padding:14px 32px;
+    border-radius:14px;
+    border:none;
+    font-size:15px;
+    cursor:pointer;
+    background:linear-gradient(135deg,#2563eb,#1e40af);
+    color:white;
+    margin-top:20px;
+}
+button:hover{opacity:0.9;}
+.start-btn{
+    background:linear-gradient(135deg,#22c55e,#15803d);
+}
+
+/* ========== TERMS ========== */
+.terms-box{
+    background:rgba(255,255,255,0.16);
+    border-radius:14px;
+    padding:18px;
+    font-size:13px;
+    line-height:1.6;
+    text-align:left;
+    height:150px;
+    overflow-y:auto;
+}
+.consent{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-top:16px;
+    font-size:14px;
+}
+
+/* ========== SELF INTRO ========== */
+.interview-box{
+    display:flex;
+    gap:16px;
+    margin:20px 0;
+}
+.ai-panel,.rule-panel{
+    background:rgba(255,255,255,0.18);
+    border-radius:16px;
+    padding:16px;
+}
+.ai-panel{width:45%;}
+.rule-panel{width:55%;text-align:left;font-size:14px;}
+.ai-avatar{width:72px;margin-bottom:10px;}
+
+video{
+    width:100%;
+    border-radius:14px;
+    margin-top:14px;
+}
+
+pre{
+    background:rgba(15,23,42,0.9);
+    padding:12px;
+    border-radius:12px;
+    font-size:12px;
+    text-align:left;
+}
+</style>
 </head>
+
 <body>
 
-<h2>AI Interview – Self Introduction</h2>
+<div class="wrapper">
 
-<button onclick="startAll()">Start Self Intro</button>
-<button onclick="stopAll()">Stop</button>
+<!-- LOGIN -->
+<div class="container" id="loginPage">
+    <h2>Candidate Login</h2>
+    <p class="subtitle">Secure Interview Session</p>
 
-<br><br>
-<video id="video" width="400" autoplay muted></video>
+    <div class="input-group">
+        <label>Full Name</label>
+        <input id="username" placeholder="Enter your full name">
+    </div>
 
-<h3>📷 Video Output</h3>
-<pre id="videoOut">Waiting...</pre>
+    <div class="input-group">
+        <label>Candidate / Interview ID</label>
+        <input id="userid" placeholder="Enter your ID">
+    </div>
 
-<h3>🎤 Live Transcript</h3>
-<pre id="liveText"></pre>
+    <button onclick="goToWelcome()">Continue</button>
+</div>
 
-<h3>🎧 Audio Analysis</h3>
-<pre id="audioOut"></pre>
+<!-- WELCOME -->
+<div class="container" id="welcomePage">
+    <h2 id="displayName"></h2>
+    <p class="subtitle">Candidate ID: <strong id="displayId"></strong></p>
+    <button onclick="showPage('termsPage')">Proceed</button>
+</div>
 
-<h3>🏆 Final Score</h3>
-<h2 id="finalScore">Waiting...</h2>
+<!-- TERMS -->
+<div class="container" id="termsPage">
+    <h2>Consent & Compliance</h2>
+    <p class="subtitle">Please review before continuing</p>
+
+    <div class="terms-box">
+        • Camera and microphone access is mandatory.<br>
+        • AI will analyze video, audio, and behavior.<br>
+        • Any malpractice leads to disqualification.<br>
+        • Data is used only for evaluation purposes.
+    </div>
+
+    <div class="consent">
+        <input type="checkbox" id="agree">
+        <label>I agree to the terms and conditions</label>
+    </div>
+
+    <button onclick="acceptTerms()">Accept & Continue</button>
+</div>
+
+<!-- PERMISSION -->
+<div class="container" id="permissionPage">
+    <h2>System Readiness</h2>
+    <p class="subtitle">Enable camera & microphone</p>
+    <button onclick="requestPermission()">Enable & Continue</button>
+</div>
+
+<!-- SELF INTRO -->
+<div class="container" id="introPage">
+    <h2>AI Interview – Self Introduction</h2>
+    <p class="subtitle">Live AI-Guided Evaluation</p>
+
+    <div class="interview-box">
+        <div class="ai-panel">
+            <img src="https://cdn-icons-png.flaticon.com/512/4712/4712109.png" class="ai-avatar">
+            <p>
+                Hello, I am your AI interviewer.<br>
+                I will guide you through this session.
+            </p>
+        </div>
+
+        <div class="rule-panel">
+            <ul>
+                <li>Maintain eye contact with the camera</li>
+                <li>Speak clearly and confidently</li>
+                <li>Avoid long pauses or fillers</li>
+                <li>Duration: 60–90 seconds</li>
+            </ul>
+        </div>
+    </div>
+
+    <button class="start-btn" onclick="startAll()">🎤 Start Self Introduction</button>
+    <button onclick="stopAll()">⏹ Stop</button>
+
+    <video id="video" autoplay muted></video>
+
+    <h4>📷 Video Analysis</h4>
+    <pre id="videoOut">Waiting...</pre>
+
+    <h4>🎧 Audio Analysis</h4>
+    <pre id="audioOut">Waiting...</pre>
+
+    <h3>🏆 Final Score</h3>
+    <h2 id="finalScore">Waiting...</h2>
+</div>
+
+</div>
 
 <script>
-let video = document.getElementById("video");
-let stream, mediaRecorder, audioChunks=[];
-let videoTimer;
+/* ========== PAGE FLOW ========== */
+function showPage(id){
+    document.querySelectorAll('.container').forEach(p=>p.style.display='none');
+    document.getElementById(id).style.display='block';
+
+    if(id==="introPage"){
+        setTimeout(speakIntroInstructions,800);
+    }
+}
+function goToWelcome(){
+    if(!username.value||!userid.value) return alert("Enter details");
+    displayName.innerText="Welcome, "+username.value;
+    displayId.innerText=userid.value;
+    showPage("welcomePage");
+}
+function acceptTerms(){
+    agree.checked?showPage("permissionPage"):alert("Accept terms");
+}
+async function requestPermission(){
+    await navigator.mediaDevices.getUserMedia({video:true,audio:true});
+    showPage("introPage");
+}
+
+/* ========== AI VOICE ========== */
+function speakAI(text){
+    if(!("speechSynthesis" in window)) return;
+    speechSynthesis.cancel();
+    const msg=new SpeechSynthesisUtterance(text);
+    msg.rate=0.95;
+    msg.pitch=1;
+    msg.volume=1;
+    const voices=speechSynthesis.getVoices();
+    msg.voice=voices.find(v=>v.name.toLowerCase().includes("zira"))||voices[0];
+    speechSynthesis.speak(msg);
+}
+function speakIntroInstructions(){
+    speakAI(
+      "Hello. I am your AI interviewer. "+
+      "I will guide you through this session. "+
+      "Please ensure you are clearly visible and audible. "+
+      "Maintain eye contact with the camera. "+
+      "Speak confidently and avoid long pauses. "+
+      "Your self introduction should be between sixty and ninety seconds. "+
+      "Click the start button when you are ready."
+    );
+}
+
+/* ========== SELF INTRO LOGIC ========== */
+let video=document.getElementById("video");
+let stream,mediaRecorder,audioChunks=[];
+let videoTimer,lastVideo={};
 
 async function startAll(){
-  await fetch("/start");
+    speakAI("You may start your self introduction now.");
 
-  stream = await navigator.mediaDevices.getUserMedia({video:true,audio:true});
-  video.srcObject = stream;
+    await fetch("/start");
+    stream=await navigator.mediaDevices.getUserMedia({video:true,audio:true});
+    video.srcObject=stream;
 
-  mediaRecorder = new MediaRecorder(stream);
-  mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-  mediaRecorder.start();
+    mediaRecorder=new MediaRecorder(stream);
+    mediaRecorder.ondataavailable=e=>audioChunks.push(e.data);
+    mediaRecorder.start();
 
-  videoTimer = setInterval(sendFrame, 2000);
+    videoTimer=setInterval(sendFrame,2000);
 }
 
 async function stopAll(){
-  clearInterval(videoTimer);
+    clearInterval(videoTimer);
+    stream.getTracks().forEach(t=>t.stop());
+    mediaRecorder.stop();
 
-  stream.getTracks().forEach(t=>t.stop());
-  mediaRecorder.stop();
-
-  mediaRecorder.onstop = async ()=>{
-    const blob = new Blob(audioChunks,{type:"audio/webm"});
-    let fd = new FormData();
-    fd.append("audio",blob);
-
-    const res = await fetch("/analyze_audio",{method:"POST",body:fd});
-    const audio = await res.json();
-
-    document.getElementById("audioOut").innerText =
-      JSON.stringify(audio,null,2);
-
-    let videoScore = lastVideo.video_score || 0;
-    let final = Math.round((videoScore + (audio.fluency_score||0))/2);
-    document.getElementById("finalScore").innerText = final+"/100";
-  };
-
-  await fetch("/stop");
+    mediaRecorder.onstop=async()=>{
+        const blob=new Blob(audioChunks,{type:"audio/webm"});
+        let fd=new FormData();
+        fd.append("audio",blob);
+        let r=await fetch("/analyze_audio",{method:"POST",body:fd});
+        let audio=await r.json();
+        audioOut.innerText=JSON.stringify(audio,null,2);
+        finalScore.innerText=
+          Math.round((lastVideo.video_score+audio.fluency_score)/2)+"/100";
+    };
+    await fetch("/stop");
 }
 
-let lastVideo = {};
 async function sendFrame(){
-  let c=document.createElement("canvas");
-  c.width=video.videoWidth;
-  c.height=video.videoHeight;
-  c.getContext("2d").drawImage(video,0,0);
-
-  c.toBlob(async b=>{
-    let fd=new FormData();
-    fd.append("frame",b);
-    const r=await fetch("/analyze_video",{method:"POST",body:fd});
-    lastVideo=await r.json();
-    document.getElementById("videoOut").innerText =
-      JSON.stringify(lastVideo,null,2);
-  });
+    let c=document.createElement("canvas");
+    c.width=video.videoWidth;
+    c.height=video.videoHeight;
+    c.getContext("2d").drawImage(video,0,0);
+    c.toBlob(async b=>{
+        let fd=new FormData();
+        fd.append("frame",b);
+        let r=await fetch("/analyze_video",{method:"POST",body:fd});
+        lastVideo=await r.json();
+        videoOut.innerText=JSON.stringify(lastVideo,null,2);
+    });
 }
+
+showPage("loginPage");
 </script>
 
 </body>
