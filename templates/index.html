@@ -169,10 +169,17 @@ pre{
     <button onclick="acceptTerms()">Accept & Continue</button>
 </div>
 
-<!-- PERMISSION -->
+<!-- PERMISSION (ONLY CHANGE HERE) -->
 <div class="container" id="permissionPage">
     <h2>System Readiness</h2>
-    <p class="subtitle">Enable camera & microphone</p>
+    <p class="subtitle">Enable camera, microphone & face verification</p>
+
+    <div class="input-group">
+        <label>Upload Reference Photo</label>
+        <input type="file" id="refPhoto" accept="image/*">
+    </div>
+
+    <button onclick="uploadReference()">📸 Upload Photo</button>
     <button onclick="requestPermission()">Enable & Continue</button>
 </div>
 
@@ -239,6 +246,26 @@ function acceptTerms(){
 async function requestPermission(){
     await navigator.mediaDevices.getUserMedia({video:true,audio:true});
     showPage("introPage");
+}
+
+/* ========== UPLOAD REFERENCE PHOTO ========== */
+async function uploadReference(){
+    const file = document.getElementById("refPhoto").files[0];
+    if(!file){
+        alert("Please select a reference photo");
+        return;
+    }
+
+    const fd = new FormData();
+    fd.append("photo", file);
+
+    const res = await fetch("/upload_photo", {
+        method: "POST",
+        body: fd
+    });
+
+    const data = await res.json();
+    alert(data.message || data.error);
 }
 
 /* ========== AI VOICE ========== */
