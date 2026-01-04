@@ -3,6 +3,7 @@ import cv2, numpy as np, time, os, tempfile, re
 
 from mtcnn import MTCNN
 from ultralytics import YOLO
+from deepface import DeepFace
 
 # AUDIO
 import librosa
@@ -12,10 +13,16 @@ import whisper
 app = Flask(__name__)
 
 # ---------------- CONFIG ----------------
-ABSENCE_THRESHOLD = 5  # seconds
+ABSENCE_THRESHOLD = 5
 FORBIDDEN_OBJECTS = ["cell phone", "book", "backpack"]
 
-# ---------------- MODELS (LOADED ONCE) ----------------
+UPLOAD_FOLDER = "uploads"
+REFERENCE_IMAGE = os.path.join(UPLOAD_FOLDER, "reference.jpg")
+FACE_MATCH_THRESHOLD = 60
+
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# ---------------- MODELS ----------------
 face_detector = MTCNN()
 yolo_model = YOLO("yolov8n.pt")
 whisper_model = whisper.load_model("base")
@@ -33,10 +40,23 @@ object_count = 0
 def index():
     return render_template("index.html")
 
+# ---------- UPLOAD REFERENCE PHOTO ----------
+@app.route("/upload_photo", methods=["POST"])
+def upload_photo():
+    photo = request.files.get("photo")
+    if not photo:
+        return jsonify({"error": "No photo uploaded"}), 400
+
+    photo.save(REFERENCE_IMAGE)
+    return jsonify({"message": "Reference photo uploaded successfully"})
+
 @app.route("/start")
 def start():
     global proctoring, last_face_time
     global leave_count, multi_face_count, object_count
+
+    if not os.path.exists(REFERENCE_IMAGE):
+        return jsonify({"error": "Upload reference photo first"}), 400
 
     proctoring = True
     last_face_time = time.time()
@@ -53,7 +73,7 @@ def stop():
     proctoring = False
     return jsonify({"status": "stopped"})
 
-# ---------------- VIDEO ANALYSIS (UNCHANGED LOGIC) ----------------
+# ---------------- VIDEO + FACE VERIFICATION ----------------
 @app.route("/analyze_video", methods=["POST"])
 def analyze_video():
     global last_face_time, leave_count, multi_face_count, object_count
@@ -68,6 +88,7 @@ def analyze_video():
 
     alerts = []
     score = 100
+    face_match = None
 
     faces = face_detector.detect_faces(frame)
     face_count = len(faces)
@@ -87,6 +108,22 @@ def analyze_video():
         alerts.append("Multiple faces detected")
         score -= min(multi_face_count * 10, 30)
 
+    # -------- FACE VERIFICATION (ONLY IF 1 FACE) --------
+    if face_count == 1 and os.path.exists(REFERENCE_IMAGE):
+        try:
+            result = DeepFace.verify(
+                img1_path=REFERENCE_IMAGE,
+                img2_path=frame,
+                model_name="Facenet",
+                enforce_detection=False
+            )
+            face_match = round(result.get("confidence", 0), 2)
+            if face_match < FACE_MATCH_THRESHOLD:
+                alerts.append("Face mismatch")
+                score -= 20
+        except:
+            face_match = None
+
     # Object detection
     results = yolo_model(frame, conf=0.3, verbose=False)
     detected = []
@@ -99,13 +136,14 @@ def analyze_video():
 
     if detected:
         object_count += 1
-        alerts.append(f"Unauthorized object detected: {list(set(detected))}")
+        alerts.append("Unauthorized object detected")
         score -= min(object_count * 10, 30)
 
     score = max(0, score)
 
     return jsonify({
         "face_count": face_count,
+        "face_match": face_match,
         "video_alerts": alerts,
         "plagiarism": {
             "left_frame": leave_count,
@@ -115,68 +153,48 @@ def analyze_video():
         "video_score": score
     })
 
-# ---------------- AUDIO ANALYSIS (WHISPER – ACCURATE) ----------------
+# ---------------- AUDIO ANALYSIS ----------------
 @app.route("/analyze_audio", methods=["POST"])
 def analyze_audio():
     audio = request.files.get("audio")
     if not audio:
         return jsonify({"error": "No audio"}), 400
 
-    # Save temporary webm
     with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as f:
         audio.save(f.name)
         webm_path = f.name
 
     wav_path = webm_path.replace(".webm", ".wav")
 
-    # Convert to wav (16kHz mono)
     ffmpeg.input(webm_path).output(
         wav_path, ac=1, ar=16000
     ).run(overwrite_output=True, quiet=True)
 
-    # Load audio
     y, sr = librosa.load(wav_path, sr=16000)
     duration = librosa.get_duration(y=y, sr=sr)
 
-    # Speech-to-text
     result = whisper_model.transcribe(wav_path)
     text = result.get("text", "").strip()
     segments = result.get("segments", [])
 
-    # No / very low speech
-    if duration < 3 or len(text.split()) < 5:
-        cleanup_files(webm_path, wav_path)
-        return jsonify({
-            "transcript": text,
-            "fluency_score": 20,
-            "pauses": 0,
-            "fillers": 0,
-            "wpm": 0
-        })
-
-    # Words per minute
     words = len(text.split())
-    wpm = (words / duration) * 60
+    wpm = (words / duration) * 60 if duration else 0
 
-    # Pause detection
     pauses = sum(
         1 for i in range(1, len(segments))
         if segments[i]["start"] - segments[i - 1]["end"] > 0.6
     )
 
-    # Filler detection
-    fillers = len(
-        re.findall(r"\b(um|uh|ah|like|you know)\b", text.lower())
-    )
+    fillers = len(re.findall(r"\b(um|uh|ah|like|you know)\b", text.lower()))
 
-    # Fluency score (balanced, realistic)
     fluency_score = (
         max(0, 100 - abs(140 - wpm)) * 0.4 +
         max(0, 100 - pauses * 8) * 0.3 +
         max(0, 100 - fillers * 12) * 0.3
     )
 
-    cleanup_files(webm_path, wav_path)
+    os.remove(webm_path)
+    os.remove(wav_path)
 
     return jsonify({
         "transcript": text,
@@ -186,12 +204,5 @@ def analyze_audio():
         "fluency_score": round(fluency_score, 2)
     })
 
-# ---------------- CLEANUP ----------------
-def cleanup_files(*paths):
-    for p in paths:
-        if os.path.exists(p):
-            os.remove(p)
-
-# ---------------- RUN ----------------
 if __name__ == "__main__":
     app.run(debug=True)
